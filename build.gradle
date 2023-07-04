@@ -238,7 +238,7 @@ configure(this) {
 group = 'org.mifos'
 version = '0.0.1-SNAPSHOT'
 description = 'ph-ee-processor-bulk'
-sourceCompatibility = '17'
+sourceCompatibility = '11'
 
 publishing {
     publications {

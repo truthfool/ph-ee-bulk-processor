@@ -126,16 +126,17 @@ public class ProcessorStartRoute extends BaseRouteBuilder {
 
         from("rest:POST:/batchtransaction").id("rest:POST:/batchtransaction").log("Starting route for batch txn")
                 .choice()
-                .when(header("type").isEqualTo("csv"))
+                .when(header("type").isEqualTo("raw"))
                         .to("direct:format-raw-to-csv")
                     .choice()
                         .when(header("CamelHttpResponseCode").startsWith("2"))
-                            .to("direct:batch-process")
+                                .log(LoggingLevel.INFO, "File conversion from JSON to CSV success")
+//                            .to("direct:batch-process")
                         .otherwise()
                             .log(LoggingLevel.ERROR, "File conversion from JSON to CSV failed")
                     .endChoice()
-                .when(header("type").isEqualTo("raw"))
-                    .to("direct:batch-process")
+//                .when(header("type").isEqualTo("csv"))
+//                    .to("direct:batch-process")
                 .endChoice();
 
         from("direct:batch-process")

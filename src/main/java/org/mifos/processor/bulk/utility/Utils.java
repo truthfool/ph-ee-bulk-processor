@@ -7,6 +7,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.logging.Logger;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +28,7 @@ import org.mifos.connector.common.mojaloop.dto.PartyIdInfo;
 import org.mifos.connector.common.mojaloop.type.IdentifierType;
 import org.mifos.processor.bulk.schema.Transaction;
 import org.mifos.processor.bulk.schema.TransactionResult;
+import org.slf4j.LoggerFactory;
 
 public class Utils {
 
@@ -266,7 +268,7 @@ public class Utils {
 
 
             csvData.append(csvMapper.writerFor(JsonNode.class).with(csvSchema).writeValueAsString(jsonNode));
-
+            System.out.println("CSV DATA FINAL : "+ csvData.toString());
             return csvData.toString();
 
 
