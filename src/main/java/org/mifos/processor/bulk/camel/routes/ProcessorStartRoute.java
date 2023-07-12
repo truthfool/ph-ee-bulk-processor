@@ -131,12 +131,12 @@ public class ProcessorStartRoute extends BaseRouteBuilder {
                     .choice()
                         .when(header("CamelHttpResponseCode").startsWith("2"))
                                 .log(LoggingLevel.INFO, "File conversion from JSON to CSV success")
-//                            .to("direct:batch-process")
+                            .to("direct:batch-process")
                         .otherwise()
                             .log(LoggingLevel.ERROR, "File conversion from JSON to CSV failed")
                     .endChoice()
-//                .when(header("type").isEqualTo("csv"))
-//                    .to("direct:batch-process")
+                .when(header("type").isEqualTo("csv"))
+                    .to("direct:batch-process")
                 .endChoice();
 
         from("direct:batch-process")
