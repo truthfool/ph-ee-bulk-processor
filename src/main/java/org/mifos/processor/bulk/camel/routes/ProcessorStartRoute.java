@@ -1,7 +1,42 @@
 package org.mifos.processor.bulk.camel.routes;
 
+import org.apache.camel.Exchange;
+import org.apache.camel.LoggingLevel;
+import org.apache.tika.Tika;
+import org.json.JSONObject;
+import org.mifos.processor.bulk.file.FileTransferService;
+import org.mifos.processor.bulk.utility.PhaseUtils;
+import org.mifos.processor.bulk.utility.Utils;
+import org.mifos.processor.bulk.zeebe.ZeebeProcessStarter;
+import org.mifos.processor.bulk.zeebe.worker.WorkerConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import javax.activation.DataHandler;
+import javax.mail.internet.MimeBodyPart;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
 import static org.mifos.processor.bulk.camel.config.CamelProperties.BATCH_REQUEST_TYPE;
 import static org.mifos.processor.bulk.camel.config.CamelProperties.TENANT_NAME;
+import static org.mifos.processor.bulk.utility.Utils.convertJsonToCsv;
 import static org.mifos.processor.bulk.zeebe.ZeebeVariables.APPROVAL_ENABLED;
 import static org.mifos.processor.bulk.zeebe.ZeebeVariables.BATCH_ID;
 import static org.mifos.processor.bulk.zeebe.ZeebeVariables.BULK_NOTIF_FAILURE;
@@ -26,96 +61,38 @@ import static org.mifos.processor.bulk.zeebe.ZeebeVariables.SPLITTING_ENABLED;
 import static org.mifos.processor.bulk.zeebe.ZeebeVariables.TENANT_ID;
 import static org.mifos.processor.bulk.zeebe.ZeebeVariables.THRESHOLD_DELAY;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.stream.Collectors;
-import javax.activation.DataHandler;
-import javax.mail.internet.MimeBodyPart;
-import org.apache.camel.Exchange;
-import org.apache.camel.LoggingLevel;
-import org.apache.tika.Tika;
-import org.json.JSONObject;
-import org.mifos.processor.bulk.file.FileTransferService;
-import org.mifos.processor.bulk.utility.PhaseUtils;
-import org.mifos.processor.bulk.utility.Utils;
-import org.mifos.processor.bulk.zeebe.ZeebeProcessStarter;
-import org.mifos.processor.bulk.zeebe.worker.WorkerConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-
-import javax.activation.DataHandler;
-import javax.mail.internet.MimeBodyPart;
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.stream.Collectors;
-
-import static org.mifos.processor.bulk.camel.config.CamelProperties.BATCH_REQUEST_TYPE;
-import static org.mifos.processor.bulk.camel.config.CamelProperties.TENANT_NAME;
-import static org.mifos.processor.bulk.utility.Utils.convertJsonToCsv;
-import static org.mifos.processor.bulk.zeebe.ZeebeVariables.*;
-
 
 @Component
 public class ProcessorStartRoute extends BaseRouteBuilder {
 
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    @Autowired
+    protected WorkerConfig workerConfig;
+    @Autowired
+    PhaseUtils phaseUtils;
     @Autowired
     private ZeebeProcessStarter zeebeProcessStarter;
-
     @Autowired
     @Qualifier("awsStorage")
     private FileTransferService fileTransferService;
-
-    @Autowired
-    protected WorkerConfig workerConfig;
-
     @Value("${application.bucket-name}")
     private String bucketName;
-
     @Value("${bpmn.flows.bulk-processor}")
     private String workflowId;
-
     @Value("${config.completion-threshold-check.completion-threshold}")
     private int completionThreshold;
-
     @Value("${config.completion-threshold-check.max-retry}")
     private int maxThresholdCheckRetry;
-
     @Value("${config.completion-threshold-check.delay}")
     private int thresholdCheckDelay;
-
     @Value("${callback.max-retry}")
     private int maxCallbackRetry;
-
     @Value("${pollingApi.timer}")
     private String pollApiTimer;
-
     @Value("#{'${csv.columnNames}'.split(',')}")
     private List<String> columnNames;
-
     @Value("${csv.size}")
     private int csvSize;
-
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
-
-    @Autowired
-    PhaseUtils phaseUtils;
 
     @Override
     public void configure() {
@@ -124,19 +101,19 @@ public class ProcessorStartRoute extends BaseRouteBuilder {
 
     private void setup() {
 
-        from("rest:POST:/batchtransaction").id("rest:POST:/batchtransaction").log("Starting route for batch txn")
+        from("rest:POST:/batchtransactions").id("rest:POST:/batchtransactions").log("Starting route for batch txn")
                 .choice()
                 .when(header("type").isEqualTo("raw"))
-                        .to("direct:format-raw-to-csv")
-                    .choice()
-                        .when(header("CamelHttpResponseCode").startsWith("2"))
-                                .log(LoggingLevel.INFO, "File conversion from JSON to CSV success")
-                            .to("direct:batch-process")
-                        .otherwise()
-                            .log(LoggingLevel.ERROR, "File conversion from JSON to CSV failed")
-                    .endChoice()
+                .to("direct:format-raw-to-csv")
+                .choice()
+                .when(header("CamelHttpResponseCode").startsWith("2"))
+                .log(LoggingLevel.INFO, "File conversion from JSON to CSV success")
+                .to("direct:batch-process")
+                .otherwise()
+                .log(LoggingLevel.ERROR, "File conversion from JSON to CSV failed")
+                .endChoice()
                 .when(header("type").isEqualTo("csv"))
-                    .to("direct:batch-process")
+                .to("direct:batch-process")
                 .endChoice();
 
         from("direct:batch-process")
@@ -157,7 +134,7 @@ public class ProcessorStartRoute extends BaseRouteBuilder {
         from("direct:format-raw-to-csv")
                 .id("direct:format-raw-to-csv")
                 .log("Starting route direct:format-raw-to-csv")
-                .process(e->{
+                .process(e -> {
                     String bulkProcessorData = e.getIn().getBody(String.class);
                     String csv = convertJsonToCsv(bulkProcessorData);
                     e.getIn().setHeader(Exchange.CONTENT_TYPE, constant("multipart/form-data"));
